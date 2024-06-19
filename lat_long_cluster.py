@@ -13,3 +13,7 @@ clf = KMeansConstrained(
 )
 
 res = clf.fit_predict(lat_long)
+
+df['cluster_id'] = res
+
+# df.to_csv('clusters.csv', index = False)
