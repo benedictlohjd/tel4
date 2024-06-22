@@ -69,7 +69,10 @@ def get_pln_area_name(latitude: str, longitude: str, year='2024') -> str:
     url = f"https://www.onemap.gov.sg/api/public/popapi/getPlanningarea?latitude={latitude}&longitude={longitude}&year={year}"
     response = requests.request("GET", url, headers=headers)
     response_body = json.loads(response.content)
-    planning_area_name = response_body[0]['pln_area_n']
+    if isinstance(response_body, list):
+        planning_area_name = response_body[0]['pln_area_n']
+    elif isinstance(response_body, dict):
+        planning_area_name = list(response_body.values())[0]
     return planning_area_name
     
     
@@ -77,7 +80,7 @@ def get_pln_area_name(latitude: str, longitude: str, year='2024') -> str:
 
 # Read in data (the data to be read in is created using 00_TEL4DataMerger.R)
 df_postcode=pd.read_csv(
-    "C:/Users/bened/OneDrive/Desktop/NUS-econ-predoc/03-TEL-LG-TW-PL/01_Data/Output/v1_and_v2_17Jun2024_0.csv",
+    "C:/Users/bened/OneDrive/Desktop/NUS-econ-predoc/03-TEL-LG-TW-PL/01_Data/Output/v1_and_v2_22Jun2024_0.csv",
     dtype=str,
     na_values='NA'
     )
@@ -86,7 +89,7 @@ df_postcode=df_postcode[['Name', 'Mobile', 'Postal', 'WS1_Postal', 'WS2_Postal',
 #%%
 
 # Loading onemap api token
-load_dotenv(os.getcwd())
+load_dotenv('c:\\Users\\bened\\telproject\\.env')
 
 url = "https://www.onemap.gov.sg/api/auth/post/getToken"
       
@@ -160,6 +163,6 @@ for i in tqdm(range(len(df_postcode))):
 
 #%%
 
-df_postcode.to_csv('loc_lat_long_V1_and_V2_17Jun2024_0.csv', index=False)
+df_postcode.to_csv('loc_lat_long_V1_and_V2_22Jun2024_0.csv', index=False)
 
 #%%
