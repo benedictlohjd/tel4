@@ -1,10 +1,13 @@
 
+library(dplyr)
+library(magrittr)
+
 # Read in data of message logs
 
 message_logs_data_path <- ""
 message_logs <- read.csv(message_logs_data_path)
 
-# Read in data of experimental groups
+# Read in data of experimental groups from constrained k means cluster (there are 4 files: money, infomoney, control, info)
 groups <- list.files(
   path="C:\\Users\\bened\\telproject\\data"
 )
@@ -72,8 +75,10 @@ inbound_msg <- message_logs %>%
   ) %>% 
   dplyr::mutate(
     agree_or_call_back = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("Agree", "Call back", "中文")}),
-    agree = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("Agree")}),
-    call_back = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("Call back", "中文")}),
+    no_to_study = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("No to study", "no to study")}),
+    agree = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("Agree")} & !no_to_study),
+    call_back_eng = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("Call back")}),
+    call_back_chn = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("中文")}),
     continue_only = dplyr::if_any(dplyr::contains("inbound"), function (x) {x %in% c("Continue") & !agree})
   ) 
 
@@ -121,16 +126,17 @@ inbound_and_outbound <- inbound_msg %>%
       grepl("not keen|No thank you|no thank you|What is|not interested|Not interested", x)
     }),
     call_to_clarify = dplyr::if_any(dplyr::contains("inbound"), function (x) {
-      grepl("travel|travelling|unable to attend|[0-9]|[\U{1F300}]|number is unavailable", x)
+      grepl("travel|travelling|unable to attend|[0-9]|[\U{1F300}]|number is unavailable|overseas|time to try out the rides yet|update my card number", x)
     }),
     call_to_clarify = dplyr::if_else(dplyr::if_any(dplyr::contains("inbound"), function (x) {x=="No"}) | call_to_clarify==TRUE, TRUE, NA),
     outcome = dplyr::case_when(
       spam_or_scam==TRUE ~ "spam or scam",
-      not_interested==TRUE & !spam_or_scam ~ "not interested",
-      call_to_clarify==TRUE & !spam_or_scam & !not_interested ~ "call to clarify",
-      call_back==TRUE & !spam_or_scam & !not_interested ~ "call back",
-      continue_only==TRUE & !spam_or_scam & !not_interested ~ "call to clarify",
-      agree==TRUE & !spam_or_scam & !not_interested & !call_back ~ "agree",
+      (not_interested==TRUE & !spam_or_scam) | (no_to_study==TRUE) ~ "No to study/not interested",
+      call_to_clarify==TRUE & !spam_or_scam & !not_interested & !no_to_study ~ "call to clarify",
+      call_back_eng==TRUE & !spam_or_scam & !not_interested & !call_back_chn & !no_to_study ~ "call back (English)",
+      call_back_chn==TRUE & !spam_or_scam & !not_interested & !call_back_eng & !no_to_study ~ "call back (Mandarin)",
+      continue_only==TRUE & !spam_or_scam & !not_interested & !no_to_study ~ "Only clicked 'Continue'",
+      agree==TRUE & !spam_or_scam & !not_interested & !call_back_eng & !call_back_chn & !no_to_study  ~ "agree",
       base::startsWith(From, "whatsapp:+656") ~ "not whatsapp number",
       err_code_1==63024 ~ "invalid message recipient error",
       err_code_2==63016 ~ "failed to send freeform message outside allowed time window error",
@@ -141,6 +147,24 @@ inbound_and_outbound <- inbound_msg %>%
     no_of_outbound_messages = sum(!is.na(dplyr::c_across(dplyr::starts_with("outbound")))),
     no_of_inbound_messages = sum(!is.na(dplyr::c_across(dplyr::starts_with("inbound"))))
   )
+
+inbound_and_outbound <- inbound_and_outbound %>% 
+  dplyr::mutate(
+    follow_up_action = dplyr::case_when(
+      outcome=="call to clarify" & no_of_outbound_messages <= 2 ~ "Send modified WA intro message with opt out option",
+      outcome=="call to clarify" & no_of_outbound_messages > 2 ~ "call and explain system glitch; not spamming intentionally by sending 8 to 9 messages",
+      outcome=="no reply" ~ "call and explain system glitch; not spamming intentionally by sending 8 to 9 messages",
+      outcome=="spam or scam" ~ "Call to clarify that we are legitimate researchers; system glitched hence accidentally spammed 8 to 9 messages",
+      outcome=="failed to send freeform message outside allowed time window error" ~ "Send modified WA intro message with opt out option",
+      outcome=="not whatsapp number"~"Send modified WA intro message with opt out option",
+      outcome=="invalid message recipient error"~"Verify that whatsapp number is valid; otherwise input corrected whatsapp number",
+      outcome=="agree" ~ "Do nothing until intervention messages",
+      outcome=="call back (English)" | outcome=="call back (Mandarin)" ~ outcome,
+      outcome=="not interested"~"Remove from study",
+    )
+  )
+
+write.csv(inbound_and_outbound, file="inbound_and_outbound_modified_intro_msg_log_00.csv", fileEncoding = "UTF-8")
 
 # Calculate summary statistics for number of outbound messages
 
